@@ -9,6 +9,11 @@ class AIModelStatus(str, enum.Enum):
     inactive = "inactive"
     under_updation = "under_updation"
 
+# NEW ENUM for cost calculation type
+class CostCalculationType(str, enum.Enum):
+    tokens = "tokens"
+    request = "request"
+
 class AIModel(Base):
     __tablename__ = "ai_models"
 
@@ -24,3 +29,11 @@ class AIModel(Base):
     status = Column(Enum(AIModelStatus, name="aimodelstatus"), default=AIModelStatus.active)
     endpoint = Column(String, nullable=True)
     created_at = Column(DateTime, default=func.now())
+
+    # NEW COLUMNS
+    request_cost = Column(Numeric(10, 6), default=0)
+    cost_calculation_type = Column(
+        Enum(CostCalculationType, name="costcalculationtype", create_type=True), # create_type=True ensures the ENUM type is created in DB
+        default=CostCalculationType.tokens,
+        nullable=False
+    )

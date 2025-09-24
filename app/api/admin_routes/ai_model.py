@@ -2,15 +2,21 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete # ADDED: delete
-from app.models.ai_model import AIModel, AIModelStatus
+from sqlalchemy import select, delete
+from app.models.ai_model import AIModel, AIModelStatus, CostCalculationType # IMPORT NEW ENUM
 from app.models.model_substitutions import ModelSubstitution
 from app.api.deps import get_db
 from datetime import datetime
+import enum # Ensure enum is imported if not already
 
 router = APIRouter()
 
 # ------------------- Pydantic Schemas -------------------
+
+# NEW: Pydantic enum for CostCalculationType for request validation
+class PydanticCostCalculationType(str, enum.Enum):
+    tokens = "tokens"
+    request = "request"
 
 class AIModelCreate(BaseModel):
     name: str
@@ -23,6 +29,9 @@ class AIModelCreate(BaseModel):
     capabilities: Dict[str, Any] = Field(default_factory=dict)
     status: AIModelStatus
     substitute_model_id: Optional[int] = None
+    # NEW FIELDS for Create Schema
+    request_cost: float = 0.0
+    cost_calculation_type: PydanticCostCalculationType = PydanticCostCalculationType.tokens
 
 class AIModelUpdate(BaseModel):
     name: Optional[str] = None
@@ -35,8 +44,11 @@ class AIModelUpdate(BaseModel):
     capabilities: Optional[Dict[str, Any]] = None
     status: Optional[AIModelStatus] = None
     substitute_model_id: Optional[int] = None
+    # NEW FIELDS for Update Schema
+    request_cost: Optional[float] = None
+    cost_calculation_type: Optional[PydanticCostCalculationType] = None
 
-# CHANGED: Added substitute_model_id to the output model
+
 class AIModelOut(BaseModel):
     id: int
     name: str
@@ -48,11 +60,15 @@ class AIModelOut(BaseModel):
     context_window: Optional[int] = None
     capabilities: Optional[Dict[str, Any]] = None
     status: AIModelStatus
-    substitute_model_id: Optional[int] = None # This field is now returned to the frontend
+    substitute_model_id: Optional[int] = None
     created_at: Optional[datetime] = None
+    # NEW FIELDS for Output Schema
+    request_cost: float
+    cost_calculation_type: PydanticCostCalculationType
+
 
     class Config:
-        from_attributes = True
+        from_attributes = True # This is crucial for SQLAlchemy models
 
 # ------------------- CRUD Endpoints -------------------
 
@@ -60,7 +76,7 @@ class AIModelOut(BaseModel):
 async def get_all_models(db: AsyncSession = Depends(get_db)):
     """
     CHANGED: This endpoint now performs a LEFT JOIN to fetch the substitute_model_id
-    for each model, if one exists.
+    for each model, if one exists. The new cost fields are automatically selected.
     """
     stmt = (
         select(AIModel, ModelSubstitution.substitute_model_id)
@@ -74,8 +90,11 @@ async def get_all_models(db: AsyncSession = Depends(get_db)):
     for model, sub_id in result.all():
         model_data = model.__dict__
         model_data['substitute_model_id'] = sub_id
-        models_out.append(AIModelOut.parse_obj(model_data))
-        
+        # Ensure capabilities is handled as a dict if it comes as None/str from DB
+        if 'capabilities' in model_data and model_data['capabilities'] is None:
+            model_data['capabilities'] = {}
+        models_out.append(AIModelOut.model_validate(model_data)) # Use model_validate for Pydantic v2
+            
     return models_out
 
 
@@ -83,7 +102,7 @@ async def get_all_models(db: AsyncSession = Depends(get_db)):
 async def get_model_by_id(model_id: int = Path(...), db: AsyncSession = Depends(get_db)):
     """
     CHANGED: This endpoint also performs a LEFT JOIN to ensure the substitute_model_id
-    is included in the response for a single model.
+    is included in the response for a single model. The new cost fields are automatically selected.
     """
     stmt = (
         select(AIModel, ModelSubstitution.substitute_model_id)
@@ -99,17 +118,21 @@ async def get_model_by_id(model_id: int = Path(...), db: AsyncSession = Depends(
     model, sub_id = record
     model_data = model.__dict__
     model_data['substitute_model_id'] = sub_id
+    # Ensure capabilities is handled as a dict if it comes as None/str from DB
+    if 'capabilities' in model_data and model_data['capabilities'] is None:
+        model_data['capabilities'] = {}
     
-    return AIModelOut.parse_obj(model_data)
+    return AIModelOut.model_validate(model_data) # Use model_validate for Pydantic v2
 
 
 @router.post("/models", response_model=AIModelOut)
 async def create_model(payload: AIModelCreate, db: AsyncSession = Depends(get_db)):
     """
-    CHANGED: The response now correctly includes the substitute_model_id if provided.
+    CHANGED: The response now correctly includes the substitute_model_id if provided,
+    and also handles the new cost_calculation_type and request_cost fields.
     """
     # Exclude substitute_model_id when creating the AIModel object itself
-    model_data = payload.dict(exclude={"substitute_model_id"})
+    model_data = payload.model_dump(exclude={"substitute_model_id"}) # Use model_dump for Pydantic v2
     new_model = AIModel(**model_data)
     
     db.add(new_model)
@@ -118,7 +141,7 @@ async def create_model(payload: AIModelCreate, db: AsyncSession = Depends(get_db
     # Create substitution if status is under_updation
     if payload.status == AIModelStatus.under_updation:
         if not payload.substitute_model_id:
-             raise HTTPException(status_code=400, detail="substitute_model_id is required when status is 'under_updation'")
+            raise HTTPException(status_code=400, detail="substitute_model_id is required when status is 'under_updation'")
         
         substitution = ModelSubstitution(
             original_model_id=new_model.id,
@@ -130,7 +153,7 @@ async def create_model(payload: AIModelCreate, db: AsyncSession = Depends(get_db
     await db.refresh(new_model)
 
     # Construct the response object
-    response_data = AIModelOut.from_orm(new_model).dict()
+    response_data = AIModelOut.model_validate(new_model).model_dump() # Use model_validate and model_dump for Pydantic v2
     response_data['substitute_model_id'] = payload.substitute_model_id if payload.status == AIModelStatus.under_updation else None
     
     return AIModelOut(**response_data)
@@ -149,7 +172,8 @@ async def update_model(
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
 
-    update_data = payload.dict(exclude_unset=True, exclude={"substitute_model_id"})
+    # Use model_dump for Pydantic v2, exclude_unset=True only applies to model_dump
+    update_data = payload.model_dump(exclude_unset=True, exclude={"substitute_model_id"})
     for field, value in update_data.items():
         setattr(model, field, value)
 
@@ -179,8 +203,32 @@ async def update_model(
                 delete(ModelSubstitution).where(ModelSubstitution.original_model_id == model.id)
             )
             await db.commit()
+    elif model.status != AIModelStatus.under_updation: # If status changes from under_updation to active/inactive, clear substitution
+        await db.execute(
+            delete(ModelSubstitution).where(ModelSubstitution.original_model_id == model.id)
+        )
+        await db.commit()
+        
+    # Construct the response object including substitute_model_id if it exists after update
+    # Fetch the substitute_model_id again if it was just handled or if the status changed.
+    # This ensures the most up-to-date state is returned.
+    stmt_after_update = (
+        select(AIModel, ModelSubstitution.substitute_model_id)
+        .outerjoin(ModelSubstitution, AIModel.id == ModelSubstitution.original_model_id)
+        .where(AIModel.id == model_id)
+    )
+    result_after_update = await db.execute(stmt_after_update)
+    model_after_update, sub_id_after_update = result_after_update.one_or_none()
 
-    return model
+    if not model_after_update:
+        raise HTTPException(status_code=404, detail="Model not found after update refresh")
+
+    model_data_after_update = model_after_update.__dict__
+    model_data_after_update['substitute_model_id'] = sub_id_after_update
+    if 'capabilities' in model_data_after_update and model_data_after_update['capabilities'] is None:
+        model_data_after_update['capabilities'] = {}
+
+    return AIModelOut.model_validate(model_data_after_update)
 
 
 @router.delete("/models/{model_id}", status_code=204)

@@ -35,3 +35,33 @@ async def get_billing_overview(db: AsyncSession = Depends(get_db)):
         }
         for bill, org_name in rows
     ]
+
+@router.get("/billing/overview/unpaid")
+async def get_billing_overview(db: AsyncSession = Depends(get_db)):
+    stmt = (
+        select(MonthlyBillingSummary, Organization.name)
+        .join(Organization, MonthlyBillingSummary.organization_id == Organization.id)
+        .where(MonthlyBillingSummary.is_paid == False) # ADDED: Filter for unpaid bills
+        .order_by(MonthlyBillingSummary.year.desc(), MonthlyBillingSummary.month.desc())
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return [
+        {
+            "id": bill.id,
+            "organization": org_name,
+            "year": bill.year,
+            "month": bill.month,
+            "total_requests": bill.total_requests,
+            "total_tokens": bill.total_tokens,
+            "usage_cost": float(bill.usage_cost or 0),
+            "subscription_cost": float(bill.subscription_cost or 0),
+            "total_cost": float(bill.total_cost or 0),
+            "status": "paid" if bill.is_paid else "unpaid", # This will now always be "unpaid" due to filter
+            "bill_id": bill.stripe_invoice_id,
+            "generated_date": bill.created_at.strftime("%Y-%m-%d")
+        }
+        for bill, org_name in rows
+    ]
