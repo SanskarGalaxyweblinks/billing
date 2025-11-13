@@ -9,9 +9,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Activity, DollarSign, Zap, AlertCircle, Settings } from "lucide-react";
+import { Activity, DollarSign, Zap, AlertCircle, Settings, Gift, CheckCircle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { useToast } from "@/components/ui/use-toast";
+import { useNavigate } from "react-router-dom";
 
 // Interface for assigned models
 interface AssignedModel {
@@ -22,46 +34,91 @@ interface AssignedModel {
   granted_at: string;
 }
 
+// Interface for discount notifications
+interface DiscountNotification {
+  id: number;
+  title: string;
+  message: string;
+  notification_type: string;
+  discount_rule_id?: number;
+  metadata?: string;
+  is_read: boolean;
+  is_popup_shown: boolean;
+  created_at: string;
+  discount_name?: string;
+  discount_percentage?: number;
+}
+
 const UserDashboard = () => {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [usageHistory, setUsageHistory] = useState<any[]>([]);
   const [assignedModels, setAssignedModels] = useState<AssignedModel[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string | null>(null); // NEW: Track selected model
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // NEW: Discount popup states
+  const [discountNotifications, setDiscountNotifications] = useState<DiscountNotification[]>([]);
+  const [currentNotification, setCurrentNotification] = useState<DiscountNotification | null>(null);
+  const [isDiscountPopupOpen, setIsDiscountPopupOpen] = useState(false);
+  
+  const { toast } = useToast();
+  const navigate = useNavigate();
+
+  // NEW: Check for discount popup notifications
+  const checkForDiscountPopups = async () => {
+    try {
+      const response = await apiClient.get("/discounts/popup-notifications");
+      if (response.data && response.data.length > 0) {
+        setDiscountNotifications(response.data);
+        setCurrentNotification(response.data[0]); // Show first notification
+        setIsDiscountPopupOpen(true);
+      }
+    } catch (error) {
+      // Silent fail - don't show errors for popup notifications
+      console.error("Failed to check for discount popups:", error);
+    }
+  };
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const [dashboardRes, historyRes, modelsRes] = await Promise.all([
+        apiClient.get("/dashboard"),
+        apiClient.get("/dashboard/usage-history?days=7"),
+        apiClient.get("/users/my-models"),
+      ]);
+      setDashboardData(dashboardRes.data);
+      setUsageHistory(historyRes.data);
+      setAssignedModels(modelsRes.data);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Failed to fetch dashboard data.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const [dashboardRes, historyRes, modelsRes] = await Promise.all([
-          apiClient.get("/dashboard"),
-          apiClient.get("/dashboard/usage-history?days=7"),
-          apiClient.get("/users/my-models"),
-        ]);
-        setDashboardData(dashboardRes.data);
-        setUsageHistory(historyRes.data);
-        setAssignedModels(modelsRes.data);
-      } catch (err: any) {
-        setError(err.response?.data?.detail || "Failed to fetch dashboard data.");
-      } finally {
-        setLoading(false);
-      }
+    const loadDashboard = async () => {
+      await fetchData();
+      // Check for discount popups after loading dashboard data
+      await checkForDiscountPopups();
     };
-    fetchData();
+    
+    loadDashboard();
   }, []);
 
-  // NEW: Handle model selection
+  // Handle model selection
   const handleModelClick = (modelName: string) => {
     setSelectedModel(selectedModel === modelName ? null : modelName);
   };
 
-  // NEW: Filter model usage data based on selection
+  // Filter model usage data based on selection
   const filteredModelUsage = selectedModel 
     ? dashboardData?.model_wise_summary?.filter((model: any) => model.model_name === selectedModel) || []
     : dashboardData?.model_wise_summary || [];
 
-  // NEW: Calculate filtered stats for selected model
+  // Calculate filtered stats for selected model
   const getFilteredStats = () => {
     if (!selectedModel || !dashboardData) return dashboardData;
     
@@ -74,6 +131,23 @@ const UserDashboard = () => {
       total_cost: modelData.total_cost,
       // Keep other stats as original since they're not model-specific
     };
+  };
+
+  // NEW: Handle discount popup actions
+  const handleViewDiscounts = () => {
+    setIsDiscountPopupOpen(false);
+    navigate('/app/discounts');
+  };
+
+  const handleCloseDiscountPopup = () => {
+    setIsDiscountPopupOpen(false);
+    // Show next notification if available
+    const remainingNotifications = discountNotifications.slice(1);
+    if (remainingNotifications.length > 0) {
+      setCurrentNotification(remainingNotifications[0]);
+      setDiscountNotifications(remainingNotifications);
+      setIsDiscountPopupOpen(true);
+    }
   };
 
   const displayData = getFilteredStats();
@@ -144,111 +218,172 @@ const UserDashboard = () => {
         </Card>
       </div>
 
-        {/* Available Models Section with Click Functionality */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>My Available Models</CardTitle>
-            <div className="flex items-center space-x-2">
-              <Settings className="h-4 w-4 text-muted-foreground" />
-              {selectedModel && (
-                <button 
-                  onClick={() => setSelectedModel(null)}
-                  className="text-xs text-blue-600 hover:text-blue-800"
+      {/* Available Models Section with Click Functionality */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>My Available Models</CardTitle>
+          <div className="flex items-center space-x-2">
+            <Settings className="h-4 w-4 text-muted-foreground" />
+            {selectedModel && (
+              <button 
+                onClick={() => setSelectedModel(null)}
+                className="text-xs text-blue-600 hover:text-blue-800"
+              >
+                View All
+              </button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {assignedModels.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {assignedModels.map((model) => (
+                <div 
+                  key={model.id} 
+                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all hover:border-blue-300 ${
+                    selectedModel === model.name 
+                      ? 'border-blue-500 bg-blue-50' 
+                      : 'border-gray-200 hover:bg-gray-50'
+                  }`}
+                  onClick={() => handleModelClick(model.name)}
                 >
-                  View All
-                </button>
-              )}
+                  <div>
+                    <div className={`font-medium text-sm ${
+                      selectedModel === model.name ? 'text-blue-700' : 'text-gray-900'
+                    }`}>
+                      {model.name}
+                    </div>
+                    <div className="text-xs text-gray-500">{model.provider}</div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Badge variant="outline" className="text-xs">
+                      {model.status}
+                    </Badge>
+                    {selectedModel === model.name && (
+                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
+          ) : (
+            <div className="text-center py-6 text-gray-500">
+              <Settings className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+              <p className="text-sm">No models assigned yet</p>
+              <p className="text-xs">Contact your administrator to get access to AI models</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Usage Last 7 Days</CardTitle>
           </CardHeader>
           <CardContent>
-            {assignedModels.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {assignedModels.map((model) => (
-                  <div 
-                    key={model.id} 
-                    className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all hover:border-blue-300 ${
-                      selectedModel === model.name 
-                        ? 'border-blue-500 bg-blue-50' 
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                    onClick={() => handleModelClick(model.name)}
-                  >
-                    <div>
-                      <div className={`font-medium text-sm ${
-                        selectedModel === model.name ? 'text-blue-700' : 'text-gray-900'
-                      }`}>
-                        {model.name}
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={usageHistory}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="usage_date" />
+                <YAxis yAxisId="left" stroke="#8884d8" />
+                <YAxis yAxisId="right" orientation="right" stroke="#82ca9d" />
+                <Tooltip />
+                <Bar yAxisId="left" dataKey="total_requests" fill="#8884d8" name="Requests" />
+                <Bar yAxisId="right" dataKey="total_cost" fill="#82ca9d" name="Cost ($)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {selectedModel ? `${selectedModel} Usage` : "This Month's Model Usage"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Model</TableHead>
+                  <TableHead>Requests</TableHead>
+                  <TableHead>Cost</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredModelUsage.map((model: any, index: number) => (
+                  <TableRow key={index}>
+                    <TableCell className="font-medium">{model.model_name}</TableCell>
+                    <TableCell>{model.total_requests.toLocaleString()}</TableCell>
+                    <TableCell>${model.total_cost.toFixed(5)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* NEW: Discount Popup Modal */}
+      <Dialog open={isDiscountPopupOpen} onOpenChange={setIsDiscountPopupOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center text-green-600">
+              <Gift className="h-6 w-6 mr-2" />
+              🎉 Congratulations!
+            </DialogTitle>
+            <DialogDescription>
+              You've unlocked a special discount offer!
+            </DialogDescription>
+          </DialogHeader>
+          
+          {currentNotification && (
+            <div className="py-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                <div className="flex items-center mb-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
+                  <h3 className="font-semibold text-green-900">{currentNotification.title}</h3>
+                </div>
+                
+                <p className="text-sm text-green-700 mb-3">
+                  {currentNotification.message}
+                </p>
+                
+                {currentNotification.discount_percentage && (
+                  <div className="flex items-center justify-center bg-green-100 rounded-lg p-3">
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-green-600">
+                        {currentNotification.discount_percentage}% OFF
                       </div>
-                      <div className="text-xs text-gray-500">{model.provider}</div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Badge variant="outline" className="text-xs">
-                        {model.status}
-                      </Badge>
-                      {selectedModel === model.name && (
-                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                      {currentNotification.discount_name && (
+                        <div className="text-sm text-green-700">
+                          {currentNotification.discount_name}
+                        </div>
                       )}
                     </div>
                   </div>
-                ))}
+                )}
               </div>
-            ) : (
-              <div className="text-center py-6 text-gray-500">
-                <Settings className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                <p className="text-sm">No models assigned yet</p>
-                <p className="text-xs">Contact your administrator to get access to AI models</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              
+              <p className="text-sm text-gray-600 text-center">
+                Visit your discounts page to enroll and start saving on your next requests!
+              </p>
+            </div>
+          )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
-                <CardHeader>
-                    <CardTitle>Usage Last 7 Days</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={usageHistory}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="usage_date" />
-                            <YAxis yAxisId="left" stroke="#8884d8" />
-                            <YAxis yAxisId="right" orientation="right" stroke="#82ca9d" />
-                            <Tooltip />
-                            <Bar yAxisId="left" dataKey="total_requests" fill="#8884d8" name="Requests" />
-                            <Bar yAxisId="right" dataKey="total_cost" fill="#82ca9d" name="Cost ($)" />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </CardContent>
-            </Card>
-            <Card>
-                <CardHeader>
-                    <CardTitle>
-                      {selectedModel ? `${selectedModel} Usage` : "This Month's Model Usage"}
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Model</TableHead>
-                                <TableHead>Requests</TableHead>
-                                <TableHead>Cost</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {filteredModelUsage.map((model: any, index: number) => (
-                                <TableRow key={index}>
-                                    <TableCell className="font-medium">{model.model_name}</TableCell>
-                                    <TableCell>{model.total_requests.toLocaleString()}</TableCell>
-                                    <TableCell>${model.total_cost.toFixed(5)}</TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </CardContent>
-            </Card>
-        </div>
+          <DialogFooter className="flex space-x-2">
+            <Button variant="outline" onClick={handleCloseDiscountPopup}>
+              Maybe Later
+            </Button>
+            <Button 
+              onClick={handleViewDiscounts}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              View My Discounts
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

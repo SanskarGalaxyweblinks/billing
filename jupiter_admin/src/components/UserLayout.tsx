@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import NotificationBadge from "@/components/NotificationBadge";
 
 const UserLayout = () => {
     const navigate = useNavigate();
@@ -35,6 +36,10 @@ const UserLayout = () => {
                 <Button variant="ghost" asChild><Link to="/app/usage">Usage</Link></Button>
                 <Button variant="ghost" asChild><Link to="/app/billing">Billing</Link></Button>
             </nav>
+            
+            {/* NEW: Notification Badge */}
+            <NotificationBadge />
+            
             <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="rounded-full">
@@ -45,6 +50,12 @@ const UserLayout = () => {
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate('/app/profile')}>Profile</DropdownMenuItem>
+                
+                {/* NEW: My Discounts menu item */}
+                <DropdownMenuItem onClick={() => navigate('/app/discounts')}>
+                    My Discounts
+                </DropdownMenuItem>
+                
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-red-600" onClick={handleSignOut}>
                     <LogOut className="mr-2 h-4 w-4" />

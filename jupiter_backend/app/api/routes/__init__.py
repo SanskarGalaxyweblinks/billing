@@ -8,6 +8,7 @@ from .resolve_model import router as resolve_model
 from .billing import router as billing_router
 from .checkout_session import router as checkout_session_router
 from .auth import router as auth_router 
+from .discounts import router as discounts_router  # NEW: Import discount routes
 from app.api.deps import get_current_user
 
 router = APIRouter()
@@ -23,6 +24,7 @@ protected_user_api.include_router(limits_router, prefix="/limits", tags=["Limits
 protected_user_api.include_router(users_router, prefix="/users", tags=["Users"])
 protected_user_api.include_router(billing_router, prefix="/billing", tags=["Billing"])
 protected_user_api.include_router(checkout_session_router, prefix="/stripe", tags=["Checkout Session"])
+protected_user_api.include_router(discounts_router, prefix="/discounts", tags=["User Discounts"])  # NEW: Add discount routes
 
 router.include_router(protected_user_api)
 

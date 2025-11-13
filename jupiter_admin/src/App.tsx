@@ -13,13 +13,14 @@ import Users from "./pages/Users";
 import AIModels from "./pages/AIModels";
 import AdminUsageAnalytics from "./pages/UsageAnalytics";
 import AdminBilling from "./pages/Billing";
-import Discounts from "./pages/Discounts"; // Import the new page
+import Discounts from "./pages/Discounts";
 
 // User Pages
 import UserDashboard from "./pages/user/UserDashboard";
 import UserBillingPage from "./pages/user/UserBillingPage";
 import UserUsagePage from "./pages/user/UserUsagePage";
 import ProfileSettingsPage from "./pages/user/ProfileSettingsPage";
+import UserDiscountsPage from "./pages/user/UserDiscountsPage"; // NEW: Import discount page
 
 // Public & Auth Pages
 import NotFound from "./pages/NotFound";
@@ -60,7 +61,6 @@ const App = () => (
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/payment-status" element={<PaymentStatusPage />} />
 
-
           {/* Protected Admin Routes */}
           <Route element={<PrivateRoute />}>
             <Route
@@ -78,7 +78,7 @@ const App = () => (
                 <Route path="ai-models" element={<AIModels />} />
                 <Route path="usage-analytics" element={<AdminUsageAnalytics />} />
                 <Route path="billing" element={<AdminBilling />} />
-                <Route path="discounts" element={<Discounts />} /> {/* Add this line */}
+                <Route path="discounts" element={<Discounts />} />
             </Route>
           </Route>
 
@@ -89,6 +89,7 @@ const App = () => (
                     <Route path="billing" element={<UserBillingPage />} />
                     <Route path="usage" element={<UserUsagePage />} />
                     <Route path="profile" element={<ProfileSettingsPage />} />
+                    <Route path="discounts" element={<UserDiscountsPage />} /> {/* NEW: Add discount route */}
                 </Route>
             </Route>
 
