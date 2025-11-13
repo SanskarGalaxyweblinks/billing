@@ -29,6 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
 import { Search, Filter, Loader2, Edit } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -52,6 +54,14 @@ interface Tier {
   name: string;
 }
 
+// NEW: AI Model interface for model assignment
+interface AIModel {
+  id: number;
+  name: string;
+  provider: string;
+  status: string;
+}
+
 const Users = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [tiers, setTiers] = useState<Tier[]>([]);
@@ -60,6 +70,11 @@ const Users = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<Partial<User>>({});
+  
+  // NEW: States for model assignment
+  const [availableModels, setAvailableModels] = useState<AIModel[]>([]);
+  const [assignedModelIds, setAssignedModelIds] = useState<number[]>([]);
+  
   const { toast } = useToast();
 
   const fetchInitialData = async () => {
@@ -79,6 +94,37 @@ const Users = () => {
     }
   };
 
+  // NEW: Load available models
+  const loadAvailableModels = async () => {
+    try {
+      const response = await apiClient.get("/admin/models");
+      setAvailableModels(response.data.filter((m: AIModel) => m.status === 'active'));
+    } catch (error) {
+      console.error("Failed to load models:", error);
+    }
+  };
+
+  // NEW: Load user's assigned models
+  const loadUserModels = async (userId: number) => {
+    try {
+      const response = await apiClient.get(`/admin/users/${userId}/models`);
+      const modelIds = response.data.assigned_models.map((m: any) => m.id);
+      setAssignedModelIds(modelIds);
+    } catch (error) {
+      console.error("Failed to load user models:", error);
+      setAssignedModelIds([]);
+    }
+  };
+
+  // NEW: Handle model toggle
+  const handleModelToggle = (modelId: number, checked: boolean) => {
+    if (checked) {
+      setAssignedModelIds(prev => [...prev, modelId]);
+    } else {
+      setAssignedModelIds(prev => prev.filter(id => id !== modelId));
+    }
+  };
+
   const handleUpdateUser = async () => {
     if (!currentUser.id) return;
 
@@ -90,7 +136,15 @@ const Users = () => {
             monthly_cost_limit: Number(currentUser.monthly_cost_limit) || null,
         };
 
+        // Update user details
         await apiClient.put(`/admin/users/${currentUser.id}`, payload);
+        
+        // NEW: Update model assignments
+        await apiClient.post(`/admin/users/${currentUser.id}/models`, {
+          user_id: currentUser.id,
+          model_ids: assignedModelIds
+        });
+        
         toast({ title: "User updated successfully!" });
         setIsDialogOpen(false);
         fetchInitialData();
@@ -111,6 +165,9 @@ const Users = () => {
   const openEditDialog = (user: User) => {
     setCurrentUser({ ...user });
     setIsDialogOpen(true);
+    // NEW: Load models when dialog opens
+    loadAvailableModels();
+    loadUserModels(user.id);
   };
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -167,7 +224,7 @@ const Users = () => {
       </div>
 
        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit User: {currentUser.full_name}</DialogTitle>
             <DialogDescription>Make changes to the user's profile and limits.</DialogDescription>
@@ -220,6 +277,41 @@ const Users = () => {
                   <Input id="monthly_cost_limit" type="number" value={currentUser.monthly_cost_limit ?? ""} onChange={handleFormChange} placeholder="200" />
                 </div>
               </div>
+
+              {/* NEW: Model Assignment Section */}
+              <Separator />
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">AI Model Access</h3>
+                <p className="text-sm text-gray-600">
+                  Select which AI models this user can access
+                </p>
+                
+                <div className="grid grid-cols-1 gap-3 max-h-64 overflow-y-auto border rounded p-4">
+                  {availableModels.map(model => (
+                    <div key={model.id} className="flex items-center space-x-3">
+                      <Checkbox
+                        id={`model-${model.id}`}
+                        checked={assignedModelIds.includes(model.id)}
+                        onCheckedChange={(checked) => 
+                          handleModelToggle(model.id, checked as boolean)
+                        }
+                      />
+                      <label 
+                        htmlFor={`model-${model.id}`}
+                        className="flex-1 cursor-pointer"
+                      >
+                        <div className="font-medium">{model.name}</div>
+                        <div className="text-sm text-gray-500">{model.provider}</div>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                
+                <p className="text-sm text-blue-600">
+                  {assignedModelIds.length} model(s) selected
+                </p>
+              </div>
+
           </div>
           <DialogFooter>
             <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
