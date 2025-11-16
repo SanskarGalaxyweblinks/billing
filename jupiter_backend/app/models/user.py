@@ -29,3 +29,8 @@ class User(Base):
     # New fields for password reset
     password_reset_token = Column(String, nullable=True)
     password_reset_token_expires = Column(DateTime, nullable=True)
+
+    # Relationships for Epic 1: Model-User Association & Billing Foundation
+    api_keys = relationship("UserAPIKey", back_populates="user", cascade="all, delete-orphan")
+    model_assignments = relationship("UserModelAssignment", back_populates="user", cascade="all, delete-orphan")
+    api_usage_logs = relationship("APIUsageLog", back_populates="user")

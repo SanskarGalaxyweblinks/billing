@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from .users import router as user_router
 from .ai_model import router as ai_model_router
-from .user_models import router as user_models_router  # NEW: Import user models router
+from .model_assignments import router as model_assignments_router  # NEW: Import model assignments router
 from .usage_summary import router as usage_summary
 from .dashboard import router as dashboard
 from .subscription_tiers import router as tier_router
@@ -19,7 +19,7 @@ router.include_router(auth_router, prefix="/admin", tags=["Admin Authentication"
 protected_admin_api = APIRouter(dependencies=[Depends(get_current_admin)])
 protected_admin_api.include_router(user_router, tags=["Admin Users"])
 protected_admin_api.include_router(ai_model_router, tags=["Admin AI Models"])
-protected_admin_api.include_router(user_models_router, tags=["Admin User Models"])  # NEW: Include user models router
+protected_admin_api.include_router(model_assignments_router, tags=["Admin Model Assignments"])  # NEW: Include model assignments router
 protected_admin_api.include_router(usage_summary, tags=["Admin Usage Summary"])
 protected_admin_api.include_router(dashboard, tags=["Admin Dashboard"])
 protected_admin_api.include_router(tier_router, tags=["Admin Subscription Tiers"])
