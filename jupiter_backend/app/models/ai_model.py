@@ -1,124 +1,137 @@
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func, and_, desc
-from app.models.ai_model import AIModel, AIModelStatus, CostCalculationType
-from app.models.organization_model import OrganizationModel
-from app.models.user_model_assignment import UserModelAssignment
-from app.models.user import User
-from app.models.api_usage_log import APIUsageLog
-from app.models.model_substitutions import ModelSubstitution
-from app.api.deps import get_db, get_current_admin
-from app.models.admin import Admin
-from datetime import datetime, timedelta
+from __future__ import annotations
+
 import enum
-import logging
+from datetime import datetime
+from typing import Any, Dict, Optional
 
-router = APIRouter()
-logger = logging.getLogger(__name__)
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Enum as SAEnum,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
+)
+from app.database import Base
 
-# ------------------- Pydantic Schemas -------------------
 
-# Pydantic enum for CostCalculationType for request validation
-class PydanticCostCalculationType(str, enum.Enum):
+class AIModelStatus(str, enum.Enum):
+    """Lifecycle states for a base AI model."""
+
+    active = "active"
+    inactive = "inactive"
+    under_updation = "under_updation"
+
+
+class CostCalculationType(str, enum.Enum):
+    """Cost strategies for billing a model."""
+
     tokens = "tokens"
     request = "request"
 
-class AIModelCreate(BaseModel):
-    name: str
-    provider: str
-    model_identifier: str
-    input_cost_per_1k_tokens: float = 0.0
-    output_cost_per_1k_tokens: float = 0.0
-    max_tokens: int = 4096
-    context_window: int = 8192
-    capabilities: Dict[str, Any] = Field(default_factory=dict)
-    status: AIModelStatus
-    substitute_model_id: Optional[int] = None
-    request_cost: float = 0.0
-    cost_calculation_type: PydanticCostCalculationType = PydanticCostCalculationType.tokens
-    endpoint: Optional[str] = None
 
-class AIModelUpdate(BaseModel):
-    name: Optional[str] = None
-    provider: Optional[str] = None
-    model_identifier: Optional[str] = None
-    input_cost_per_1k_tokens: Optional[float] = None
-    output_cost_per_1k_tokens: Optional[float] = None
-    max_tokens: Optional[int] = None
-    context_window: Optional[int] = None
-    capabilities: Optional[Dict[str, Any]] = None
-    status: Optional[AIModelStatus] = None
-    substitute_model_id: Optional[int] = None
-    request_cost: Optional[float] = None
-    cost_calculation_type: Optional[PydanticCostCalculationType] = None
-    endpoint: Optional[str] = None
+def _capabilities_default() -> Dict[str, Any]:
+    return {}
 
-class AIModelOut(BaseModel):
-    id: int
-    name: str
-    provider: str
-    model_identifier: str
-    input_cost_per_1k_tokens: float
-    output_cost_per_1k_tokens: float
-    max_tokens: Optional[int] = None
-    context_window: Optional[int] = None
-    capabilities: Optional[Dict[str, Any]] = None
-    status: AIModelStatus
-    substitute_model_id: Optional[int] = None
-    created_at: Optional[datetime] = None
-    request_cost: float
-    cost_calculation_type: PydanticCostCalculationType
-    endpoint: Optional[str] = None
-    
-    # Enhanced fields for Epic 1
-    total_assignments: int = 0
-    active_assignments: int = 0
-    total_usage_requests: int = 0
-    total_revenue: float = 0.0
-    organization_models_count: int = 0
 
-    class Config:
-        from_attributes = True
+class AIModel(Base):
+    """
+    Core SQLAlchemy model for managing base AI models that power the platform.
 
-class OrganizationModelCreate(BaseModel):
-    organization_id: int
-    model_name: str
-    display_name: str
-    model_type: str
-    description: Optional[str] = None
-    endpoint_url: Optional[str] = None
-    base_model_id: Optional[int] = None
-    cost_per_request: float = 0.01
-    pricing_model: str = "per_request"
-    is_public: bool = False
-    max_requests_per_minute: int = 100
-    max_requests_per_hour: int = 1000
-    supported_languages: List[str] = ["en"]
-    input_types: List[str] = ["text"]
-    output_types: List[str] = ["text"]
+    Previously the file accidentally contained admin router logic and no longer
+    defined the ORM entity. The absence of this definition caused FastAPI to
+    crash when importing `app.models.ai_model`. This class reintroduces the
+    database schema so other modules (usage logs, assignments, analytics, etc.)
+    can function correctly.
+    """
 
-class OrganizationModelOut(BaseModel):
-    id: int
-    organization_id: int
-    model_name: str
-    display_name: str
-    model_type: str
-    version: str
-    description: Optional[str]
-    endpoint_url: Optional[str]
-    is_active: bool
-    deployment_status: str
-    health_status: str
-    pricing_model: str
-    cost_per_request: float
-    total_requests_processed: int
-    total_revenue_generated: float
-    created_at: datetime
-    last_used_at: Optional[datetime]
-    
-    # Related data
+    __tablename__ = "ai_models"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False)
+    provider = Column(String(100), nullable=False)
+    model_identifier = Column(String(255), nullable=False, unique=True, index=True)
+    description = Column(Text, nullable=True)
+
+    # Pricing & costing
+    input_cost_per_1k_tokens = Column(Numeric(12, 6), default=0, nullable=False)
+    output_cost_per_1k_tokens = Column(Numeric(12, 6), default=0, nullable=False)
+    request_cost = Column(Numeric(12, 6), default=0, nullable=False)
+    cost_calculation_type = Column(
+        SAEnum(CostCalculationType, name="ai_model_cost_type"),
+        default=CostCalculationType.tokens,
+        nullable=False,
+    )
+
+    # Capabilities & limits
+    max_tokens = Column(Integer, nullable=True)
+    context_window = Column(Integer, nullable=True)
+    capabilities = Column(JSON, default=_capabilities_default, nullable=True)
+    endpoint = Column(String(500), nullable=True)
+
+    # Metadata
+    status = Column(
+        SAEnum(AIModelStatus, name="ai_model_status"),
+        default=AIModelStatus.active,
+        nullable=False,
+    )
+    is_public = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    last_used_at = Column(DateTime, nullable=True)
+
+    # ---------------------------------------------------------------------
+    # Helper utilities
+    # ---------------------------------------------------------------------
+
+    def get_capabilities(self) -> Dict[str, Any]:
+        """Return capabilities as a dictionary."""
+        value = self.capabilities
+        if value in (None, "", {}):
+            return {}
+        if isinstance(value, dict):
+            return value
+        # JSON columns may come back as strings depending on the driver
+        try:
+            import json
+
+            return json.loads(value) if isinstance(value, str) else dict(value)
+        except (ValueError, TypeError):
+            return {}
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize model fields into a plain dictionary for responses."""
+
+        def _to_float(val: Optional[Numeric]) -> float:
+            return float(val or 0)
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "provider": self.provider,
+            "model_identifier": self.model_identifier,
+            "description": self.description,
+            "input_cost_per_1k_tokens": _to_float(self.input_cost_per_1k_tokens),
+            "output_cost_per_1k_tokens": _to_float(self.output_cost_per_1k_tokens),
+            "request_cost": _to_float(self.request_cost),
+            "cost_calculation_type": self.cost_calculation_type,
+            "max_tokens": self.max_tokens,
+            "context_window": self.context_window,
+            "capabilities": self.get_capabilities(),
+            "status": self.status,
+            "endpoint": self.endpoint,
+            "is_public": self.is_public,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+        }
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<AIModel id={self.id} name={self.name!r} provider={self.provider!r} status={self.status}>"
     organization_name: Optional[str] = None
     base_model_name: Optional[str] = None
 
@@ -149,10 +162,7 @@ async def get_all_models(
     """Get all AI models with enhanced statistics"""
     
     # Build base query
-    stmt = (
-        select(AIModel, ModelSubstitution.substitute_model_id)
-        .outerjoin(ModelSubstitution, AIModel.id == ModelSubstitution.original_model_id)
-    )
+    stmt = select(AIModel)
     
     # Apply filters
     if status:

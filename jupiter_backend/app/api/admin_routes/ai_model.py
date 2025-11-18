@@ -1,13 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
-from app.models.ai_model import AIModel, AIModelStatus, CostCalculationType # IMPORT NEW ENUM
-from app.models.model_substitutions import ModelSubstitution
-from app.api.deps import get_db
-from datetime import datetime
-import enum # Ensure enum is imported if not already
+from sqlalchemy import select, delete, func, and_, desc, or_
+from app.models.ai_model import AIModel, AIModelStatus, CostCalculationType
+from app.models.organization_model import OrganizationModel
+from app.models.user_model_assignment import UserModelAssignment
+from app.models.user import User
+from app.models.api_usage_log import APIUsageLog
+from app.api.deps import get_db, get_current_admin
+from app.models.admin import Admin
+from datetime import datetime, timedelta
+import enum
+import logging
 
 router = APIRouter()
 
