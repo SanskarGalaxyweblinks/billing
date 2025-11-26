@@ -30,9 +30,10 @@ class UserAPIKey(Base):
     # Scopes/permissions (JSON array as string)
     scopes = Column(Text, default='["read", "write"]')  # ["read", "write", "admin"]
 
-    # Relationships
-    user = relationship("User", back_populates="api_keys")
-    model_access = relationship("UserModelAssignment", back_populates="api_key")
+    # FIXED: Relationships - removed back_populates since User doesn't have api_keys anymore
+    user = relationship("User")
+    # ALSO COMMENTED OUT: UserModelAssignment relationship until that model is properly defined
+    # model_access = relationship("UserModelAssignment", back_populates="api_key")
 
     @classmethod
     def generate_api_key(cls) -> tuple[str, str, str]:

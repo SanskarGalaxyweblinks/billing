@@ -19,7 +19,9 @@ class User(Base):
     monthly_request_limit = Column(Integer)
     monthly_token_limit = Column(Integer)
     monthly_cost_limit = Column(Numeric)
-    subscription_tier = relationship("SubscriptionTier", lazy="joined")
+    
+    # FIXED: Removed lazy="joined" to prevent eager loading issues
+    subscription_tier = relationship("SubscriptionTier")
 
     # Fields for email verification
     email_verified = Column(Boolean, default=False)
@@ -30,7 +32,9 @@ class User(Base):
     password_reset_token = Column(String, nullable=True)
     password_reset_token_expires = Column(DateTime, nullable=True)
 
-    # Relationships for Epic 1: Model-User Association & Billing Foundation
-    api_keys = relationship("UserAPIKey", back_populates="user", cascade="all, delete-orphan")
-    model_assignments = relationship("UserModelAssignment", back_populates="user", cascade="all, delete-orphan")
-    api_usage_logs = relationship("APIUsageLog", back_populates="user")
+    # TEMPORARILY COMMENTED OUT: Relationships causing SQLAlchemy errors
+    # Uncomment these once you create the corresponding model files properly
+    
+    # api_keys = relationship("UserAPIKey", back_populates="user", cascade="all, delete-orphan")
+    # model_assignments = relationship("UserModelAssignment", back_populates="user", cascade="all, delete-orphan") 
+    # api_usage_logs = relationship("APIUsageLog", back_populates="user")

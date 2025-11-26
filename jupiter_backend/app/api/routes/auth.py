@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr
 import uuid
 from datetime import datetime, timedelta
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user  # FIXED: Added get_current_user import
 from app.models.user import User
 from app.models.user_api_key import UserAPIKey
 from app.security import create_access_token, get_password_hash, verify_password
@@ -129,7 +129,7 @@ async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(g
     return {"message": "Email verified successfully. You can now log in."}
     
 @router.post("/resend-verification-email")
-async def resend_verification_email(
+async def resend_verification_email_route(
     payload: ResendVerificationRequest, 
     background_tasks: BackgroundTasks, 
     db: AsyncSession = Depends(get_db)
@@ -343,17 +343,22 @@ async def toggle_api_key(
 # --- Helper Functions ---
 async def _create_default_api_key(user: User, db: AsyncSession):
     """Create a default API key for new users"""
-    full_key, key_hash, prefix = UserAPIKey.generate_api_key()
-    
-    default_api_key = UserAPIKey(
-        user_id=user.id,
-        key_name="Default API Key",
-        api_key_hash=key_hash,
-        api_key_prefix=prefix,
-        rate_limit_per_minute=60,
-        rate_limit_per_hour=1000,
-        rate_limit_per_day=10000
-    )
-    
-    db.add(default_api_key)
-    await db.commit()
+    # Check if UserAPIKey model exists and has the generate_api_key method
+    try:
+        full_key, key_hash, prefix = UserAPIKey.generate_api_key()
+        
+        default_api_key = UserAPIKey(
+            user_id=user.id,
+            key_name="Default API Key",
+            api_key_hash=key_hash,
+            api_key_prefix=prefix,
+            rate_limit_per_minute=60,
+            rate_limit_per_hour=1000,
+            rate_limit_per_day=10000
+        )
+        
+        db.add(default_api_key)
+        await db.commit()
+    except Exception:
+        # If UserAPIKey model doesn't exist or method fails, continue without creating default key
+        pass

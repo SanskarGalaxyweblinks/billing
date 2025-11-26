@@ -40,8 +40,8 @@ class APIUsageLog(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     processed_at = Column(DateTime, nullable=True)  # When user/model mapping was completed
 
-    # Relationships
-    user = relationship("User", back_populates="api_usage_logs")
+    # FIXED: Relationships - removed back_populates since User doesn't have api_usage_logs anymore
+    user = relationship("User")
     model = relationship("AIModel")
     api_key = relationship("UserAPIKey")
 
